@@ -17,5 +17,31 @@ namespace IFT585_TP1
             this.m_B2StreamIn = B2.PhysiqueStreamOut;
             this.m_B2StreamOut = B2.PhysiqueStreamIn;
         }
+
+        public void Run()
+        {
+            while (true) 
+            {
+                Trame completeFrame = new Trame();
+                if (m_A2StreamIn.TryTake(out completeFrame, 100))
+                {
+                    /* Trame provenant de A */
+
+                    // TO DO : Faire les perturbations de la couche physique
+
+                    m_B2StreamOut.Add(completeFrame);
+                }
+
+
+                if (m_B2StreamIn.TryTake(out completeFrame, 100))
+                {
+                    /* Trame provenant de B */
+
+                    // TO DO : Faire les perturbations de la couche physique
+
+                    m_A2StreamOut.Add(completeFrame);
+                }
+            }
+        }
     }
 }

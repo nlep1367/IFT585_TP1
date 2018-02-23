@@ -36,7 +36,7 @@ namespace IFT585_TP1
             this.m_physiqueStreamOut = new BlockingCollection<Trame>();
         }
 
-        public void Process()
+        public void Run()
         {
             while (true)
             {
@@ -48,11 +48,11 @@ namespace IFT585_TP1
 
                     // TO DO : Faire le traitement de la sous-couche MAC
 
-                    m_physiqueStreamIn.Add(completeFrame);
+                    m_physiqueStreamOut.Add(completeFrame);
                 }
 
 
-                if (m_physiqueStreamOut.TryTake(out completeFrame, 100))
+                if (m_physiqueStreamIn.TryTake(out completeFrame, 100))
                 {
                     /* Trame provenant de la couche physique */
 

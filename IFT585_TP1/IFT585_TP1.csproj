@@ -8,5 +8,7 @@
   <ItemGroup>
     <Compile Remove="IFilter.cs" />
     <Compile Remove="Trame.cs" />
+    <Compile Remove="IPipelineElement.cs" />
+    <Compile Remove="StartEventArgs.cs" />
   </ItemGroup>
 </Project>

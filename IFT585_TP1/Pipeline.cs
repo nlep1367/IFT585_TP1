@@ -8,13 +8,13 @@ namespace IFT585_TP1
 {
 
 
-    public struct Paramètres
+    public class Paramètres
     {
-        uint tailleTampon { get; set; }
-        uint delaisTemporisation { get; set; }
+        public uint tailleTampon { get; set; }
+        public uint delaisTemporisation { get; set; }
 
-        string emplacementACopier { get; set; }
-        string emplacementCopie { get; set; }
+        public string emplacementACopier { get; set; }
+        public string emplacementCopie { get; set; }
     }
 
     public class Signal
@@ -24,22 +24,6 @@ namespace IFT585_TP1
         {
             get { return m_isComplete; }
             set { m_isComplete = value; }
-        }
-    }
-
-    static void LireFichier(Stream stream, byte[] data)
-    {
-        int offset = 0;
-        int remaining = data.Length;
-        while (remaining > 0)
-        {
-            int read = stream.Read(data, offset, remaining);
-            if (read <= 0)
-            {
-                throw new EndOfStreamException(String.Format("End of stream reached with {0} bytes left to read", remaining));
-            }
-            remaining -= read;
-            offset += read;
         }
     }
 
@@ -53,10 +37,19 @@ namespace IFT585_TP1
         static Signal g_signal = new Signal();
 
         private CoucheLLC A1;
-        private ThreadA2 A2;
+        private CoucheLLC B1;
+        private CoucheMAC A2;
+        private CoucheMAC B2;
+        private CouchePhysique C;
 
-        private BlockingCollection<Trame> tramesA1;
-        private BlockingCollection<Trame> tramesA2;
+        private BlockingCollection<Trame> tramesA1_A2;
+        private BlockingCollection<Trame> tramesA2_A1;
+        private BlockingCollection<Trame> tramesA_C;
+        private BlockingCollection<Trame> tramesC_A;
+        private BlockingCollection<Trame> tramesB_C;
+        private BlockingCollection<Trame> tramesC_B;
+        private BlockingCollection<Trame> tramesB1_B2;
+        private BlockingCollection<Trame> tramesB2_B1;
 
         public Pipeline() {}
 
@@ -64,40 +57,80 @@ namespace IFT585_TP1
         {
             Paramètres param = new Paramètres();
 
-            // Reading the input file path
             Console.WriteLine("Quelle est la taille du tampon à utiliser de chaque côté du support de transmission?");
-            param = Console.ReadLine();
+            bool entreeCorrecte = false;
+            while (!entreeCorrecte)
+            {
+                try
+                {
+                    param.tailleTampon = Convert.ToUInt16(Console.ReadLine());
+                    entreeCorrecte = true;
+                }
+                catch (InvalidCastException)
+                {
+                    Console.WriteLine("La valeur entrée n'est pas un entier; svp réessayer :");
+                }
+            }
 
-            // Reading the input file path
             Console.WriteLine("Quel est le délais de temporisation des trames?");
-            A1.Path = Console.ReadLine();
+            entreeCorrecte = false;
+            while (!entreeCorrecte)
+            {
+                try
+                {
+                    param.delaisTemporisation = Convert.ToUInt16(Console.ReadLine());
+                    entreeCorrecte = true;
+                }
+                catch (InvalidCastException)
+                {
+                    Console.WriteLine("La valeur entrée n'est pas un entier; svp réessayer :");
+                }
+            }
 
-            // Reading the input file path
             Console.WriteLine("Quel est l'emplacement du fichier à copier?");
-            path = Console.ReadLine();
+            param.emplacementACopier = Console.ReadLine();
 
-            // Reading the input file path
             Console.WriteLine("Quel est l'emplacemenet pour la copie du fichier?");
-            A1.Path = Console.ReadLine();
+            param.emplacementCopie = Console.ReadLine();
 
-            tramesA1 = new BlockingCollection<Trame>();
-            tramesA2 = new BlockingCollection<Trame>();
+            tramesA1_A2 = new BlockingCollection<Trame>();
+            tramesA2_A1 = new BlockingCollection<Trame>();
+            tramesA_C = new BlockingCollection<Trame>();
+            tramesC_A = new BlockingCollection<Trame>();
+            tramesB_C = new BlockingCollection<Trame>();
+            tramesC_B = new BlockingCollection<Trame>();
+            tramesB1_B2 = new BlockingCollection<Trame>();
+            tramesB2_B1 = new BlockingCollection<Trame>();
 
             A1 = new CoucheLLC(g_signal);
-            A2 = new ThreadA2(g_signal);
+            A2 = new CoucheMAC(g_signal, A1);
 
-            Thread threadA1 = new Thread(A1.Process);
-            Thread threadA2 = new Thread(A2.Process);
+            B1 = new CoucheLLC(g_signal);
+            B2 = new CoucheMAC(g_signal, B1);
+
+            C = new CouchePhysique(g_signal, A2, B2);
+
+            Thread threadA1 = new Thread(A1.Run);
+            Thread threadA2 = new Thread(A2.Run);
+            Thread threadB1 = new Thread(B1.Run);
+            Thread threadB2 = new Thread(B2.Run);
+            Thread threadC = new Thread(C.Run);
 
             try
             {
                 threadA1.Start();
                 threadA2.Start();
+                threadB1.Start();
+                threadB1.Start();
+                threadC.Start();
             }
             finally
             {
                 threadA1.Join();
                 threadA2.Join();
+                threadB1.Join();
+                threadB1.Join();
+                threadC.Join();
             }
 
         }

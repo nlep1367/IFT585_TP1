@@ -3,12 +3,15 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
+using System.Timers;
 
 namespace IFT585_TP1
 {
     // TO DO :
-    //  -   Read a file byte by byte (see pr);
-    //  -   Create a "M" bytes frame begining containing the data to send and the frame ID
+    //  -  Système de timer ACK
+    //  -  Gestion du cheksum pour la levée de l'évènement CkSumErr
+    //  -  Solution pour déterminer la variable plusVieilleTrame liée au timeout d'une trame
     public class CoucheLLC
     {
         /*
@@ -91,6 +94,69 @@ namespace IFT585_TP1
             }
         }
 
+        private class Chrono
+        {
+            private class MyTimer : System.Timers.Timer
+            {
+                public uint ID { get; set; }   
+                public Chrono Parent { get; set; }
+            }
+
+            private MyTimer[] m_timers;
+
+            private BlockingCollection<TypeEvenement> m_eventStream;
+            public BlockingCollection<TypeEvenement> EventStream
+            {
+                get { return m_eventStream; }
+            }
+
+            public Chrono(BlockingCollection<TypeEvenement> eventStream)
+            {
+                this.m_eventStream = eventStream;
+                this.m_timers = new MyTimer[Constants.NB_BUFS];
+
+                uint cpt = 0;
+
+                foreach (MyTimer chrono in this.m_timers)
+                {
+                    chrono.Interval = (double)Constants.TIMEOUT;
+                    chrono.ID = cpt++;
+                    chrono.Parent = this;
+                    // Hook up the Elapsed event for the timer. 
+                    chrono.Elapsed += OnTimedEvent;
+                }
+            }
+
+            public void PartirChrono(uint fenetre)
+            {
+                this.m_timers[fenetre].Start();
+            }
+
+            public void StopChrono(uint fenetre)
+            {
+                this.m_timers[fenetre].Stop();
+            }
+
+            private void Detruire()
+            {
+                foreach (MyTimer chrono in this.m_timers)
+                {
+                    chrono.Dispose();
+                }
+            }
+
+            private static void OnTimedEvent(Object source, ElapsedEventArgs e)
+            {
+                Console.WriteLine("The Elapsed event was raised at {0:HH:mm:ss.fff}",
+                                  e.SignalTime);
+                MyTimer chrono = source as MyTimer;
+                if (chrono != null)
+                {
+                    chrono.Parent.EventStream.Add(TypeEvenement.Timeout);
+                }
+            }
+        }
+
         static bool noNAK = true;      /* Pas encore reçu d'aquitement négatif*/
 
         private BlockingCollection<TypeEvenement> m_eventStream;
@@ -115,15 +181,21 @@ namespace IFT585_TP1
         private BlockingCollection<Paquet> m_reseauStreamOut;
 
         private CoucheReseau m_coucheReseau;
+        private Signal m_signal;
+        private Chrono m_chrono;
 
         public CoucheLLC(Signal signal)
         {
+            this.m_signal = signal;
+
             this.m_MACStreamIn = new BlockingCollection<Trame>();
             this.m_MACStreamOut = new BlockingCollection<Trame>();
 
             this.m_eventStream = new BlockingCollection<TypeEvenement>();
             this.m_reseauStreamIn = new BlockingCollection<Paquet>();
             this.m_reseauStreamOut = new BlockingCollection<Paquet>();
+
+            this.m_chrono = new Chrono(m_eventStream);
         }
 
         public void InitialiserA1(string path)
@@ -198,7 +270,7 @@ namespace IFT585_TP1
 
             if (typeTrame == TypeTrame.data)
                 /* Armement du Timer */
-                StartTimer(noTrame % Constants.NB_BUFS);
+                this.m_chrono.PartirChrono(noTrame % Constants.NB_BUFS);
 
             StopACKTimer();
         }
@@ -237,7 +309,7 @@ namespace IFT585_TP1
             nbTampons = 0;
             for (index = 0; index < Constants.NB_BUFS; index++) estArrive[index] = false;
 
-            while (true)
+            while (!this.m_signal.IsComplete)
             {
                 evenement = _attendreEvenement();
 
@@ -251,7 +323,7 @@ namespace IFT585_TP1
                         /* Transmission */
                         _envoyerTrame(TypeTrame.data, prochaineTramePourEnvoie, trameAttendue, outTampon);
                         /* Avance bord fenêtre */
-                        inc(prochaineTramePourEnvoie);
+                        ++prochaineTramePourEnvoie;
                         break;
                     case TypeEvenement.ArriveeTrame:       /* Arrivé d'une trame de données ou de contrôle */
                         /* Acquisition */
@@ -276,12 +348,12 @@ namespace IFT585_TP1
                                 while (estArrive[trameAttendue % Constants.NB_BUFS])
                                 {
                                     /* Passage trames et avancée fenêtre */
-                                    _versCoucheReseau(out inTampon[trameAttendue % Constants.NB_BUFS]);
+                                    _versCoucheReseau(inTampon[trameAttendue % Constants.NB_BUFS]);
                                     noNAK = true;
                                     estArrive[trameAttendue % Constants.NB_BUFS] = false;
 
-                                    inc(trameAttendue);     /* Avance bord inf. fenêtre récepteur */
-                                    inc(tropLoin);          /* Avance bord haut fenêtre récepteur */
+                                    ++trameAttendue;     /* Avance bord inf. fenêtre récepteur */
+                                    ++tropLoin;          /* Avance bord haut fenêtre récepteur */
                                     StartACKTimer();
                                 }
                             }
@@ -296,9 +368,9 @@ namespace IFT585_TP1
                             /* Traitement ACK superposé */
                             --nbTampons;
                             /* Trame arrivée intacte */
-                            StopTimer(ackAttendu % Constants.NB_BUFS);
+                            this.m_chrono.StopChrono(ackAttendu % Constants.NB_BUFS);
                             /* Avance bord bas fenêtre émetteur */
-                            inc(ackAttendu);
+                            ++ackAttendu;
                         }
                         break;
                     case TypeEvenement.CkSumErr:
