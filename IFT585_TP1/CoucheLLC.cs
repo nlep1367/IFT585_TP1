@@ -9,9 +9,7 @@ using System.Timers;
 namespace IFT585_TP1
 {
     // TO DO :
-    //  -  Système de timer ACK
     //  -  Gestion du cheksum pour la levée de l'évènement CkSumErr
-    //  -  Solution pour déterminer la variable plusVieilleTrame liée au timeout d'une trame
     public class CoucheLLC
     {
         /*
@@ -110,6 +108,12 @@ namespace IFT585_TP1
                 get { return m_eventStream; }
             }
 
+            private BlockingCollection<uint> m_plusVieilleTrameStream;
+            public BlockingCollection<uint> PlusVieilleTrameStream
+            {
+                get { return m_plusVieilleTrameStream; }
+            }
+
             public Chrono(BlockingCollection<TypeEvenement> eventStream)
             {
                 this.m_eventStream = eventStream;
@@ -125,10 +129,14 @@ namespace IFT585_TP1
                     // Hook up the Elapsed event for the timer. 
                     chrono.Elapsed += OnTimedEvent;
                 }
+
+                this.m_plusVieilleTrameStream = new BlockingCollection<uint>();
             }
 
-            public void PartirChrono(uint fenetre)
+            public void PartirChrono(uint noTrame)
             {
+                uint fenetre = noTrame % Constants.NB_BUFS;
+                this.m_timers[fenetre].ID = noTrame;
                 this.m_timers[fenetre].Start();
             }
 
@@ -147,12 +155,64 @@ namespace IFT585_TP1
 
             private static void OnTimedEvent(Object source, ElapsedEventArgs e)
             {
-                Console.WriteLine("The Elapsed event was raised at {0:HH:mm:ss.fff}",
-                                  e.SignalTime);
                 MyTimer chrono = source as MyTimer;
                 if (chrono != null)
                 {
+                    chrono.Parent.PlusVieilleTrameStream.Add(chrono.ID);
                     chrono.Parent.EventStream.Add(TypeEvenement.Timeout);
+                }
+            }
+        }
+
+        private class ACKTimer : System.Timers.Timer
+        {
+            private bool m_estArme;
+            public bool EstArme
+            {
+                set { m_estArme = value; }
+            }
+
+            private BlockingCollection<TypeEvenement> m_eventStream;
+            public BlockingCollection<TypeEvenement> EventStream
+            {
+                get { return m_eventStream; }
+            }
+
+            public ACKTimer(BlockingCollection<TypeEvenement> eventStream)
+            {
+                this.m_eventStream = eventStream;
+                this.m_estArme = false;
+
+                this.Interval = (double)Constants.ACK_TIMEOUT;
+                // Hook up the Elapsed event for the timer. 
+                this.Elapsed += OnTimedEvent;
+            }
+
+            public void StartACKTimer()
+            {
+                if (!m_estArme)
+                {
+                    this.Start();
+                    m_estArme = true;
+                }
+            }
+
+            public void StopACKTimer()
+            {
+                if (m_estArme)
+                {
+                    this.Stop();
+                    m_estArme = false;
+                }
+            }
+
+            private static void OnTimedEvent(Object source, ElapsedEventArgs e)
+            {
+                ACKTimer chrono = source as ACKTimer;
+                if (chrono != null)
+                {
+                    chrono.EventStream.Add(TypeEvenement.ACKTimeout);
+                    chrono.EstArme = false;
                 }
             }
         }
@@ -183,6 +243,7 @@ namespace IFT585_TP1
         private CoucheReseau m_coucheReseau;
         private Signal m_signal;
         private Chrono m_chrono;
+        private ACKTimer m_ackTimer;
 
         public CoucheLLC(Signal signal)
         {
@@ -196,6 +257,7 @@ namespace IFT585_TP1
             this.m_reseauStreamOut = new BlockingCollection<Paquet>();
 
             this.m_chrono = new Chrono(m_eventStream);
+            this.m_ackTimer = new ACKTimer(m_eventStream);
         }
 
         public void InitialiserA1(string path)
@@ -270,9 +332,9 @@ namespace IFT585_TP1
 
             if (typeTrame == TypeTrame.data)
                 /* Armement du Timer */
-                this.m_chrono.PartirChrono(noTrame % Constants.NB_BUFS);
+                this.m_chrono.PartirChrono(noTrame);
 
-            StopACKTimer();
+            this.m_ackTimer.StopACKTimer();
         }
 
         private TypeEvenement _attendreEvenement()
@@ -335,7 +397,7 @@ namespace IFT585_TP1
                             if ((r.NoSequence != trameAttendue) && noNAK)
                                 _envoyerTrame(TypeTrame.nak, 0, trameAttendue, outTampon);
                             else
-                                StartACKTimer();
+                                this.m_ackTimer.StartACKTimer();
 
                             if (EstAuMillieu(trameAttendue, r.NoSequence, tropLoin) && (estArrive[r.NoSequence % Constants.NB_BUFS] == false))
                             {
@@ -354,7 +416,7 @@ namespace IFT585_TP1
 
                                     ++trameAttendue;     /* Avance bord inf. fenêtre récepteur */
                                     ++tropLoin;          /* Avance bord haut fenêtre récepteur */
-                                    StartACKTimer();
+                                    this.m_ackTimer.StartACKTimer();
                                 }
                             }
 
@@ -378,7 +440,7 @@ namespace IFT585_TP1
                             _envoyerTrame(TypeTrame.nak, 0, trameAttendue, outTampon);   /* Trame altérée */
                         break;
                     case TypeEvenement.Timeout:
-                        _envoyerTrame(TypeTrame.data, plusVieilleTrame, trameAttendue, outTampon);
+                        _envoyerTrame(TypeTrame.data, this.m_chrono.PlusVieilleTrameStream.Take(), trameAttendue, outTampon);
                         break;
                     case TypeEvenement.ACKTimeout:
                         /* Timer ACK expiré => Enovie ACK */

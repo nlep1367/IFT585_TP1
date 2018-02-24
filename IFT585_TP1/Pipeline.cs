@@ -29,7 +29,6 @@ namespace IFT585_TP1
 
     /*
      * La classe Pipeline implemente un pipelne sequentiel. 
-     * Tous les elements composant le pipeline sont passifs.
      */
     public class Pipeline
     {

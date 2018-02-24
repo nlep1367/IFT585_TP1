@@ -23,6 +23,7 @@ namespace IFT585_TP1
         public const uint N = 64;
 
         public const uint TIMEOUT = 1000;
+        public const uint ACK_TIMEOUT = 1000;
     }
 
     public enum TypeEvenement
